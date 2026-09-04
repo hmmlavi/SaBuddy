@@ -1,0 +1,6 @@
+{
+  "name": "SaBuddy",
+  "description": "Your AI Social Media Buddy - personal AI social media manager powered by Gemini",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
