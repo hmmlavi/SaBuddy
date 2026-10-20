@@ -1,0 +1,140 @@
+name: Capture SaBuddy app screenshots
+
+on:
+  push:
+    branches:
+      - docs/readme-app-screenshots
+    paths:
+      - .github/workflows/capture-app-screenshots.yml
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/readme-app-screenshots
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Build debug app
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Install and capture app screens
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096
+          heap-size: 2048
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p docs/screenshots work/screen-capture
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm clear com.aistudio.sabuddy.app
+            adb shell am force-stop com.aistudio.sabuddy.app
+            adb shell am start -n com.aistudio.sabuddy.app/com.example.MainActivity
+            sleep 30
+            adb shell uiautomator dump /sdcard/sabuddy-setup.xml
+            adb pull /sdcard/sabuddy-setup.xml work/screen-capture/setup.xml
+            python3 - <<'PY'
+            import re
+            import xml.etree.ElementTree as ET
+            root = ET.parse("work/screen-capture/setup.xml").getroot()
+            nodes = list(root.iter("node"))
+            if not any("Explore Offline First" in n.attrib.get("text", "") for n in nodes):
+                raise SystemExit("SaBuddy setup screen did not render; see captured UI tree and logcat.")
+            button = next(n for n in nodes if "Explore Offline First" in n.attrib.get("text", ""))
+            match = re.fullmatch(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]", button.attrib["bounds"])
+            if not match:
+                raise SystemExit("Could not read setup button bounds.")
+            x1, y1, x2, y2 = map(int, match.groups())
+            print(f"SETUP_BUTTON_CENTER={((x1+x2)//2)} {((y1+y2)//2)}")
+            PY
+            read -r TAP_X TAP_Y <<< "$(python3 - <<'PY'
+            import re
+            import xml.etree.ElementTree as ET
+            root = ET.parse("work/screen-capture/setup.xml").getroot()
+            button = next(n for n in root.iter("node") if "Explore Offline First" in n.attrib.get("text", ""))
+            x1,y1,x2,y2 = map(int, re.fullmatch(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]", button.attrib["bounds"]).groups())
+            print((x1+x2)//2, (y1+y2)//2)
+            PY
+            )"
+            adb exec-out screencap -p > docs/screenshots/setup.png
+            adb shell input tap "$TAP_X" "$TAP_Y"
+            for attempt in $(seq 1 20); do
+              sleep 2
+              adb shell uiautomator dump /sdcard/sabuddy-dashboard.xml >/dev/null
+              adb pull /sdcard/sabuddy-dashboard.xml work/screen-capture/dashboard.xml >/dev/null
+              if grep -q 'text="Dashboard"' work/screen-capture/dashboard.xml; then
+                break
+              fi
+            done
+            if ! grep -q 'text="Dashboard"' work/screen-capture/dashboard.xml; then
+              echo "SaBuddy did not reach its Dashboard after selecting offline mode."
+              exit 1
+            fi
+            adb exec-out screencap -p > docs/screenshots/dashboard.png
+            adb logcat -d > work/screen-capture/logcat.txt
+            python3 - <<'PY'
+            import os, struct
+            for name in ("setup.png", "dashboard.png"):
+                path = os.path.join("docs/screenshots", name)
+                with open(path, "rb") as image:
+                    header = image.read(24)
+                if header[:8] != b"\\x89PNG\\r\\n\\x1a\\n":
+                    raise SystemExit(f"{path} is not a PNG")
+                width, height = struct.unpack(">II", header[16:24])
+                if width < 480 or height < 800:
+                    raise SystemExit(f"{path} is unexpectedly small: {width}x{height}")
+            print("Verified setup and dashboard emulator captures.")
+            PY
+
+      - name: Add screenshots to README
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          readme = Path("README.md")
+          text = readme.read_text()
+          if "## Screenshots" in text:
+              raise SystemExit("A screenshots section already exists; refusing to overwrite it.")
+          section = """## Screenshots
+
+          Captured from SaBuddy running in an Android emulator.
+
+          ![SaBuddy setup screen](docs/screenshots/setup.png)
+
+          ![SaBuddy dashboard](docs/screenshots/dashboard.png)
+
+          """
+          marker = "## Features"
+          if marker not in text:
+              raise SystemExit("Could not find README Features section.")
+          readme.write_text(text.replace(marker, section + marker, 1))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/screenshots/setup.png docs/screenshots/dashboard.png
+          git commit -m "docs: add genuine SaBuddy emulator screenshots"
+          git push origin docs/readme-app-screenshots
+
+      - name: Upload capture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sabuddy-screenshot-capture-diagnostics
+          path: |
+            work/screen-capture/**
+            docs/screenshots/**
+          if-no-files-found: ignore
