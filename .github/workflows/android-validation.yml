@@ -77,8 +77,18 @@ jobs:
             adb install app/build/outputs/apk/release/app-release.apk
             adb shell am force-stop com.aistudio.sabuddy.app
             adb shell am start -n com.aistudio.sabuddy.app/com.example.MainActivity
-            sleep 8
-            adb shell pidof com.aistudio.sabuddy.app
+            release_started=false
+            for attempt in $(seq 1 12); do
+              if adb shell pidof com.aistudio.sabuddy.app >/dev/null 2>&1; then
+                release_started=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$release_started" != true ]; then
+              adb logcat -d -s AndroidRuntime:E ActivityManager:E
+              exit 1
+            fi
 
       - name: Upload emulator screenshots
         if: always()
@@ -90,7 +100,7 @@ jobs:
           retention-days: 7
 
       - name: Add verified screenshots to the pull request
-        if: success() && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
