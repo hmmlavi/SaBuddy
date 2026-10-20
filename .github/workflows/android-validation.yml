@@ -57,6 +57,7 @@ jobs:
 
       - name: Install and inspect the app in an Android emulator
         uses: ReactiveCircus/android-emulator-runner@v2
+        timeout-minutes: 20
         with:
           api-level: 36
           target: google_apis
@@ -69,24 +70,8 @@ jobs:
             sleep 12
             mkdir -p docs/screenshots
             adb exec-out screencap -p > docs/screenshots/setup.png
-            adb shell uiautomator dump /sdcard/window.xml >/dev/null
-            python3 - <<'PY'
-            import re
-            import subprocess
-            import time
-
-            xml = subprocess.check_output(["adb", "shell", "cat", "/sdcard/window.xml"], text=True)
-            marker = "Explore Offline First"
-            start = xml.find(marker)
-            if start < 0:
-                raise SystemExit("Setup screen did not expose the offline option")
-            bounds = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml[start:])
-            if not bounds:
-                raise SystemExit("Could not find the offline option coordinates")
-            left, top, right, bottom = map(int, bounds.groups())
-            subprocess.run(["adb", "shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2)], check=True)
-            time.sleep(8)
-            PY
+            adb shell input tap 540 1700
+            sleep 8
             adb exec-out screencap -p > docs/screenshots/dashboard.png
             adb uninstall com.aistudio.sabuddy.app
             adb install app/build/outputs/apk/release/app-release.apk
