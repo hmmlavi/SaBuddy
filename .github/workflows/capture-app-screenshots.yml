@@ -25,6 +25,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+      - name: Create temporary debug signing key
+        run: keytool -genkeypair -noprompt -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
       - name: Build debug app
         run: gradle --no-daemon :app:assembleDebug
 
@@ -49,29 +51,19 @@ jobs:
             adb shell uiautomator dump /sdcard/sabuddy-setup.xml
             adb pull /sdcard/sabuddy-setup.xml work/screen-capture/setup.xml
             python3 - <<'PY'
-            import re
             import xml.etree.ElementTree as ET
             root = ET.parse("work/screen-capture/setup.xml").getroot()
             nodes = list(root.iter("node"))
             if not any("Explore Offline First" in n.attrib.get("text", "") for n in nodes):
                 raise SystemExit("SaBuddy setup screen did not render; see captured UI tree and logcat.")
             button = next(n for n in nodes if "Explore Offline First" in n.attrib.get("text", ""))
-            match = re.fullmatch(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]", button.attrib["bounds"])
-            if not match:
-                raise SystemExit("Could not read setup button bounds.")
-            x1, y1, x2, y2 = map(int, match.groups())
-            print(f"SETUP_BUTTON_CENTER={((x1+x2)//2)} {((y1+y2)//2)}")
+            bounds = button.attrib["bounds"].replace("][", ",").strip("[]")
+            x1, y1, x2, y2 = map(int, bounds.split(","))
+            with open("work/screen-capture/tap.txt", "w") as output:
+                output.write(f"{(x1+x2)//2} {(y1+y2)//2}")
             PY
-            read -r TAP_X TAP_Y <<< "$(python3 - <<'PY'
-            import re
-            import xml.etree.ElementTree as ET
-            root = ET.parse("work/screen-capture/setup.xml").getroot()
-            button = next(n for n in root.iter("node") if "Explore Offline First" in n.attrib.get("text", ""))
-            x1,y1,x2,y2 = map(int, re.fullmatch(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]", button.attrib["bounds"]).groups())
-            print((x1+x2)//2, (y1+y2)//2)
-            PY
-            )"
             adb exec-out screencap -p > docs/screenshots/setup.png
+            read -r TAP_X TAP_Y < work/screen-capture/tap.txt
             adb shell input tap "$TAP_X" "$TAP_Y"
             for attempt in $(seq 1 20); do
               sleep 2
@@ -93,7 +85,7 @@ jobs:
                 path = os.path.join("docs/screenshots", name)
                 with open(path, "rb") as image:
                     header = image.read(24)
-                if header[:8] != b"\\x89PNG\\r\\n\\x1a\\n":
+                if header[:8] != b"\x89PNG\r\n\x1a\n":
                     raise SystemExit(f"{path} is not a PNG")
                 width, height = struct.unpack(">II", header[16:24])
                 if width < 480 or height < 800:
