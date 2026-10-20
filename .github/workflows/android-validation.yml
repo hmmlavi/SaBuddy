@@ -88,7 +88,8 @@ jobs:
             time.sleep(8)
             PY
             adb exec-out screencap -p > docs/screenshots/dashboard.png
-            adb install -r app/build/outputs/apk/release/app-release.apk
+            adb uninstall com.aistudio.sabuddy.app
+            adb install app/build/outputs/apk/release/app-release.apk
             adb shell am force-stop com.aistudio.sabuddy.app
             adb shell am start -n com.aistudio.sabuddy.app/com.example.MainActivity
             sleep 8
