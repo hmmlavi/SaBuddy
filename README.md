@@ -2,9 +2,6 @@
 
 SaBuddy is an Android app for planning and drafting social media content. It brings content ideas, short-form video scripts, post and carousel outlines, captions, hashtags, a calendar, saved content, brand settings, and manually maintained analytics into one local workspace.
 
-## Screenshots
-
-No verified screenshots of the running application are currently checked into this repository. The image at [app/src/test/screenshots/greeting.png](app/src/test/screenshots/greeting.png) is a Robolectric test fixture and does not show SaBuddy. Add screenshots here after capturing them from a running build.
 
 ## Features
 
